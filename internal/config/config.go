@@ -24,41 +24,31 @@ type Config struct {
 }
 
 func Load(filePath string) (*Config, error) {
-	var cfg Config
-
-	file, err := os.ReadFile(filePath)
-
+	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("Error reading config file: %w", err)
+		return nil, fmt.Errorf("read config file %q: %w", filePath, err)
 	}
-
-	if err := yaml.Unmarshal(file, &cfg); err != nil {
-		return nil, fmt.Errorf("Error unmarshalling config file: %w", err)
-
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("unmarshal config file %q: %w", filePath, err)
 	}
-
-	// Set sensible defaults if not provided
 	if cfg.Interface == "" {
-
+		return nil, fmt.Errorf("config field interface is required")
 	}
-
-	if cfg.Influx.BatchSize == 0 {
-		cfg.Influx.BatchSize = 500 // Default batch size
+	if cfg.Influx.BatchSize <= 0 {
+		cfg.Influx.BatchSize = 5000
 	}
-
-	if cfg.Influx.FlushInterval == 0 {
-		cfg.Influx.FlushInterval = 2 * time.Second // Default flush interval
+	if cfg.Influx.FlushInterval <= 0 {
+		cfg.Influx.FlushInterval = 2 * time.Second
 	}
-
-	// Optional overrides with environment variables
-
 	if token := os.Getenv("INFLUX_TOKEN"); token != "" {
 		cfg.Influx.Token = token
 	}
-
 	if url := os.Getenv("INFLUX_URL"); url != "" {
 		cfg.Influx.URL = url
 	}
-
+	if cfg.Influx.URL == "" || cfg.Influx.Bucket == "" {
+		return nil, fmt.Errorf("influx.url and influx.bucket are required")
+	}
 	return &cfg, nil
 }
