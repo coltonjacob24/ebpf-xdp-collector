@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 type InfluxConfig struct {
@@ -24,16 +24,41 @@ type Config struct {
 }
 
 func Load(filePath string) (*Config, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open config file: %w", err)
-	}
-	defer file.Close()
+	var cfg Config
 
-	decoder := yaml.NewDecoder(file)
-	config := &Config{}
-	if err := decoder.Decode(config); err != nil {
-		return nil, fmt.Errorf("failed to decode config file: %w", err)
+	file, err := os.ReadFile(filePath)
+
+	if err != nil {
+		return nil, fmt.Errorf("Error reading config file: %w", err)
 	}
-	return config, nil
-}s
+
+	if err := yaml.Unmarshal(file, &cfg); err != nil {
+		return nil, fmt.Errorf("Error unmarshalling config file: %w", err)
+
+	}
+
+	// Set sensible defaults if not provided
+	if cfg.Interface == "" {
+
+	}
+
+	if cfg.Influx.BatchSize == 0 {
+		cfg.Influx.BatchSize = 500 // Default batch size
+	}
+
+	if cfg.Influx.FlushInterval == 0 {
+		cfg.Influx.FlushInterval = 2 * time.Second // Default flush interval
+	}
+
+	// Optional overrides with environment variables
+
+	if token := os.Getenv("INFLUX_TOKEN"); token != "" {
+		cfg.Influx.Token = token
+	}
+
+	if url := os.Getenv("INFLUX_URL"); url != "" {
+		cfg.Influx.URL = url
+	}
+
+	return &cfg, nil
+}

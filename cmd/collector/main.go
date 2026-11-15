@@ -10,7 +10,7 @@ import (
 	"github.com/coltonjacob24/ebpf-xdp-collector/internal/config"
 	"github.com/coltonjacob24/ebpf-xdp-collector/internal/ebpf"
 	"github.com/coltonjacob24/ebpf-xdp-collector/internal/influx"
-	"github.com/coltonjacob24/ebpf-xdp-collector/processor"
+	"github.com/coltonjacob24/ebpf-xdp-collector/internal/processor"
 )
 
 func main() {
@@ -30,12 +30,6 @@ func main() {
 		cancel()
 	}()
 
-	/* // Initialize eBPF collector
-	collector, err := ebpf.NewCollector(cfg)
-	if err != nil {
-		log.Fatalf("Failed to create eBPF collector: %v", err)
-	}*/
-
 	// Initialize eBPF Loader
 	ebpfLoader, err := ebpf.NewLoader(cfg.Interface)
 	if err != nil {
@@ -43,18 +37,12 @@ func main() {
 	}
 	defer ebpfLoader.Close()
 
-	/*// Initialize InfluxDB client
-	influxClient, err := influx.NewClient(cfg.InfluxDB)
-	if err != nil {
-		log.Fatalf("Failed to create InfluxDB client: %v", err)
-	}*/
-
 	// Initialize InfluxDB Writer
 	influxWriter, err := influx.NewWriter(cfg.Influx)
 	if err != nil {
 		log.Fatalf("Failed to create InfluxDB writer: %v", err)
 	}
-	defer influxWriter.Close()
+	defer influxWriter.Close(ctx)
 
 	// Initialize processor
 	proc := processor.New(influxWriter)
@@ -63,11 +51,6 @@ func main() {
 	log.Printf("Starting eBPF collector on interface %s ...", cfg.Interface)
 	if err := ebpfLoader.Start(ctx, proc.HandleEvent); err != nil {
 		log.Fatalf("Collector stopped: %v", err)
-	}
-
-	// Start the processor
-	if err := proc.Start(ctx); err != nil {
-		log.Fatalf("Failed to start processor: %v", err)
 	}
 
 	// Wait for context cancellation

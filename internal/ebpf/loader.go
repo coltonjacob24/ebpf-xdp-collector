@@ -23,7 +23,6 @@ func NewLoader(iface string) (*Loader, error) {
 	}
 
 	// Load the eBPF objects
-	// objs := &ebpf.XdpObjects{}
 	objs := &xdpObjects{}
 	if err := loadXdpObjects(objs, nil); err != nil {
 		return nil, fmt.Errorf("failed to load eBPF objects: %w", err)
@@ -98,19 +97,3 @@ func (l *Loader) Close() error {
 	}
 	return nil
 }
-
-/*objs := &ebpf.XdpObjects{}
-
-if err := ebpf.LoadXdpObjects(objs, nil); err != nil {
-	log.Fatal(err)
-}
-defer objs.Close()
-
-l, err := link.AttachXDP(link.XDPOptions{
-	Program: objs.XdpCollector,
-	Interface: ifindex,
-})
-if err != nil {
-	log.Fatal(err)
-}
-defer l.Close()*/
