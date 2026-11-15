@@ -30,18 +30,18 @@ func main() {
 		cancel()
 	}()
 
-	// Initialize eBPF collector
+	/* // Initialize eBPF collector
 	collector, err := ebpf.NewCollector(cfg)
 	if err != nil {
 		log.Fatalf("Failed to create eBPF collector: %v", err)
-	}
+	}*/
 
 	// Initialize eBPF Loader
-	loader, err := ebpf.NewLoader(cfg.Interface)
+	ebpfLoader, err := ebpf.NewLoader(cfg.Interface)
 	if err != nil {
 		log.Fatalf("Failed to create eBPF loader: %v", err)
 	}
-	defer loader.Close()
+	defer ebpfLoader.Close()
 
 	/*// Initialize InfluxDB client
 	influxClient, err := influx.NewClient(cfg.InfluxDB)
@@ -61,7 +61,7 @@ func main() {
 
 	// Start the collector
 	log.Printf("Starting eBPF collector on interface %s ...", cfg.Interface)
-	if err := loader.Run(ctx, proc.HandleEvent); err != nil {
+	if err := ebpfLoader.Start(ctx, proc.HandleEvent); err != nil {
 		log.Fatalf("Collector stopped: %v", err)
 	}
 
