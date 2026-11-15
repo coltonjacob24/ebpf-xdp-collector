@@ -2,6 +2,7 @@ package ebpf
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 
@@ -17,83 +18,75 @@ type Loader struct {
 }
 
 func NewLoader(iface string) (*Loader, error) {
-	// Remove the resource limit for loading eBPF programs
 	if err := rlimit.RemoveMemlock(); err != nil {
-		return nil, fmt.Errorf("failed to remove memlock limit: %w", err)
+		return nil, fmt.Errorf("remove memlock limit: %w", err)
 	}
-
-	// Load the eBPF objects
 	objs := &xdpObjects{}
 	if err := loadXdpObjects(objs, nil); err != nil {
-		return nil, fmt.Errorf("failed to load eBPF objects: %w", err)
+		return nil, fmt.Errorf("load eBPF objects: %w", err)
 	}
-
-	// Attach the XDP program to the specified interface
 	ifindex, err := net.InterfaceByName(iface)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get interface index for %s: %w", iface, err)
+		_ = objs.Close()
+		return nil, fmt.Errorf("get interface index for %s: %w", iface, err)
 	}
-
-	l, err := link.AttachXDP(link.XDPOptions{
-		Program:   objs.XdpCollector,
-		Interface: ifindex.Index,
-	})
+	l, err := link.AttachXDP(link.XDPOptions{Program: objs.XdpCollector, Interface: ifindex.Index})
 	if err != nil {
-		return nil, fmt.Errorf("failed to attach XDP program: %w", err)
+		_ = objs.Close()
+		return nil, fmt.Errorf("attach XDP program: %w", err)
 	}
-
-	// Create a ring buffer reader
 	reader, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
-		l.Close()
-		objs.Close()
-		return nil, fmt.Errorf("failed to create ring buffer reader: %w", err)
+		_ = l.Close()
+		_ = objs.Close()
+		return nil, fmt.Errorf("create ring buffer reader: %w", err)
 	}
-
-	return &Loader{
-		objs:   objs,
-		link:   l,
-		reader: reader,
-	}, nil
+	return &Loader{objs: objs, link: l, reader: reader}, nil
 }
 
 func (l *Loader) Start(ctx context.Context, handler func([]byte)) error {
+	if l.reader == nil {
+		return fmt.Errorf("ring buffer reader is not initialized")
+	}
+	// Read blocks; closing the reader is what unblocks it on cancellation.
+	go func() {
+		<-ctx.Done()
+		_ = l.reader.Close()
+	}()
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			record, err := l.reader.Read()
-			if err != nil {
-				if err == ringbuf.ErrClosed {
-					return nil
-				}
-				return fmt.Errorf("failed to read from ring buffer: %w", err)
+		record, err := l.reader.Read()
+		if err != nil {
+			if errors.Is(err, ringbuf.ErrClosed) && ctx.Err() != nil {
+				return nil
 			}
-			handler(record.RawSample)
+			if errors.Is(err, ringbuf.ErrClosed) {
+				return nil
+			}
+			return fmt.Errorf("read from ring buffer: %w", err)
 		}
+		handler(record.RawSample)
 	}
 }
 
 func (l *Loader) Close() error {
 	var errs []error
 	if l.reader != nil {
-		if err := l.reader.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to close ring buffer reader: %w", err))
+		if err := l.reader.Close(); err != nil && !errors.Is(err, ringbuf.ErrClosed) {
+			errs = append(errs, fmt.Errorf("close ring buffer reader: %w", err))
 		}
 	}
 	if l.link != nil {
 		if err := l.link.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to close link: %w", err))
+			errs = append(errs, fmt.Errorf("close XDP link: %w", err))
 		}
 	}
 	if l.objs != nil {
 		if err := l.objs.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to close eBPF objects: %w", err))
+			errs = append(errs, fmt.Errorf("close eBPF objects: %w", err))
 		}
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("errors occurred while closing loader: %v", errs)
+	if len(errs) != 0 {
+		return fmt.Errorf("loader close errors: %v", errs)
 	}
 	return nil
 }
