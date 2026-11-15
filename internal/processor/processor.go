@@ -3,15 +3,15 @@ package processor
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/coltonjacob24/ebpf-xdp-collector/internal/influx"
 )
 
-// rawPacketEvent represents the raw packet data as received from the network.
-// This must match the structure of the C struct in bpf/xdp_collector.h
+const rawEventSize = 32
+
 type rawPacket struct {
 	Timestamp  uint64
 	SourceIP   uint32
@@ -20,36 +20,29 @@ type rawPacket struct {
 	DestPort   uint16
 	Protocol   uint8
 	PktLen     uint16
-	_          [3]uint8 // Padding to align the struct to 8 bytes
 }
 
 type Processor struct {
-	writer *influx.Writer
+	writer       *influx.Writer
+	events       atomic.Uint64
+	parseErrors  atomic.Uint64
+	writeErrors  atomic.Uint64
 }
 
-func New(writer *influx.Writer) *Processor {
-	return &Processor{
-		writer: writer,
-	}
-}
+func New(writer *influx.Writer) *Processor { return &Processor{writer: writer} }
 
-// HandleEvent is called for every event from ring buffer.
+// HandleEvent is called for every event read from the kernel ring buffer.
+// It intentionally avoids per-packet logging; counters can be sampled by metrics.
 func (p *Processor) HandleEvent(raw []byte) {
-	if len(raw) < 32 { // minimum size of the struct
-		log.Printf("Received undersized event: %d bytes", len(raw))
-		return
-	}
-
+	p.events.Add(1)
 	event, err := parseRawEvent(raw)
 	if err != nil {
-		log.Printf("Failed to parse raw event: %v", err)
+		p.parseErrors.Add(1)
 		return
 	}
-	// At this point, 'event' contains the parsed raw packet event.
 
-	// Convert to the format expected by Influx writer.
 	packet := influx.PacketEvent{
-		Timestamp:  time.Unix(0, int64(event.Timestamp)),
+		Timestamp:  time.Unix(0, int64(event.Timestamp)).UTC(),
 		SourceIP:   intToIP(event.SourceIP).String(),
 		DestIP:     intToIP(event.DestIP).String(),
 		SourcePort: event.SourcePort,
@@ -57,32 +50,32 @@ func (p *Processor) HandleEvent(raw []byte) {
 		Protocol:   protocolToString(event.Protocol),
 		PktLen:     event.PktLen,
 	}
-
 	if err := p.writer.Write(packet); err != nil {
-		log.Printf("Failed to write packet to Influx writer: %v", err)
+		p.writeErrors.Add(1)
 	}
 }
 
-func parseRawEvent(data []byte) (*rawPacket, error) {
-	if len(data) < 32 {
-		return nil, fmt.Errorf("insufficient data length: %d", len(data))
-	}
+func (p *Processor) Counts() (events, parseErrors, writeErrors uint64) {
+	return p.events.Load(), p.parseErrors.Load(), p.writeErrors.Load()
+}
 
-	event := &rawPacket{
+func parseRawEvent(data []byte) (*rawPacket, error) {
+	if len(data) < rawEventSize {
+		return nil, fmt.Errorf("event size %d is smaller than %d", len(data), rawEventSize)
+	}
+	return &rawPacket{
 		Timestamp:  binary.LittleEndian.Uint64(data[0:8]),
 		SourceIP:   binary.LittleEndian.Uint32(data[8:12]),
 		DestIP:     binary.LittleEndian.Uint32(data[12:16]),
 		SourcePort: binary.LittleEndian.Uint16(data[16:18]),
 		DestPort:   binary.LittleEndian.Uint16(data[18:20]),
 		Protocol:   data[20],
-		PktLen:     binary.LittleEndian.Uint16(data[21:23]),
-	}
-
-	return event, nil
+		PktLen:     binary.LittleEndian.Uint16(data[22:24]),
+	}, nil
 }
 
 func intToIP(ip uint32) net.IP {
-	result := make(net.IP, 4)
+	result := make(net.IP, net.IPv4len)
 	binary.LittleEndian.PutUint32(result, ip)
 	return result
 }

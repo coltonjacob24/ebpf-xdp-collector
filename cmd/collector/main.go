@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/coltonjacob24/ebpf-xdp-collector/internal/config"
 	"github.com/coltonjacob24/ebpf-xdp-collector/internal/ebpf"
@@ -13,46 +15,49 @@ import (
 	"github.com/coltonjacob24/ebpf-xdp-collector/internal/processor"
 )
 
-func main() {
+func run() error {
 	cfg, err := config.Load("config/config.yaml")
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		return err
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-
-	// Handle OS signals for graceful shutdown
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		cancel()
+	writer, err := influx.NewWriter(cfg.Influx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := writer.Close(shutdownCtx); err != nil {
+			log.Printf("flush/close InfluxDB writer: %v", err)
+		}
 	}()
 
-	// Initialize eBPF Loader
-	ebpfLoader, err := ebpf.NewLoader(cfg.Interface)
+	loader, err := ebpf.NewLoader(cfg.Interface)
 	if err != nil {
-		log.Fatalf("Failed to create eBPF loader: %v", err)
+		return err
 	}
-	defer ebpfLoader.Close()
+	defer func() {
+		if err := loader.Close(); err != nil {
+			log.Printf("close eBPF loader: %v", err)
+		}
+	}()
 
-	// Initialize InfluxDB Writer
-	influxWriter, err := influx.NewWriter(cfg.Influx)
-	if err != nil {
-		log.Fatalf("Failed to create InfluxDB writer: %v", err)
+	proc := processor.New(writer)
+	log.Printf("Starting metadata collector on interface %s", cfg.Interface)
+	if err := loader.Start(ctx, proc.HandleEvent); err != nil && !errors.Is(err, context.Canceled) {
+		return err
 	}
-	defer influxWriter.Close(ctx)
+	events, parseErrors, writeErrors := proc.Counts()
+	log.Printf("Collector stopped: events=%d parse_errors=%d write_errors=%d", events, parseErrors, writeErrors)
+	return nil
+}
 
-	// Initialize processor
-	proc := processor.New(influxWriter)
-
-	// Start the collector
-	log.Printf("Starting eBPF collector on interface %s ...", cfg.Interface)
-	if err := ebpfLoader.Start(ctx, proc.HandleEvent); err != nil {
-		log.Fatalf("Collector stopped: %v", err)
+func main() {
+	if err := run(); err != nil {
+		log.Printf("collector: %v", err)
+		os.Exit(1)
 	}
-
-	// Wait for context cancellation
-	<-ctx.Done()
 }
