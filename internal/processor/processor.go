@@ -3,99 +3,82 @@ package processor
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/coltonjacob24/ebpf-xdp-collector/internal/influx"
 )
 
-// rawPacketEvent represents the raw packet data as received from the network.
-// This must match the structure of the C struct in bpf/xdp_collector.h
+const packetEventSize = 32
+
+// rawPacket mirrors packet_event in bpf/xdp_collector.h.
 type rawPacket struct {
-	Timestamp  uint64
-	SourceIP   uint32
-	DestIP     uint32
+	Timestamp uint64
+	SourceIP uint32
+	DestIP uint32
 	SourcePort uint16
-	DestPort   uint16
-	Protocol   uint8
-	PktLen     uint16
-	_          [3]uint8 // Padding to align the struct to 8 bytes
+	DestPort uint16
+	Protocol uint8
+	PktLen uint16
 }
 
 type Processor struct {
 	writer *influx.Writer
+	events atomic.Uint64
+	parseErrors atomic.Uint64
+	writeErrors atomic.Uint64
+}
+type Stats struct {
+	Events uint64
+	ParseErrors uint64
+	WriteErrors uint64
 }
 
-func New(writer *influx.Writer) *Processor {
-	return &Processor{
-		writer: writer,
-	}
-}
+func New(writer *influx.Writer) *Processor { return &Processor{writer: writer} }
 
-// HandleEvent is called for every event from ring buffer.
+// HandleEvent intentionally avoids per-packet logging; use Stats for counters.
 func (p *Processor) HandleEvent(raw []byte) {
-	if len(raw) < 32 { // minimum size of the struct
-		log.Printf("Received undersized event: %d bytes", len(raw))
-		return
-	}
-
+	p.events.Add(1)
 	event, err := parseRawEvent(raw)
-	if err != nil {
-		log.Printf("Failed to parse raw event: %v", err)
-		return
-	}
-	// At this point, 'event' contains the parsed raw packet event.
-
-	// Convert to the format expected by Influx writer.
+	if err != nil { p.parseErrors.Add(1); return }
 	packet := influx.PacketEvent{
-		Timestamp:  time.Unix(0, int64(event.Timestamp)),
-		SourceIP:   intToIP(event.SourceIP).String(),
-		DestIP:     intToIP(event.DestIP).String(),
+		Timestamp: time.Unix(0, int64(event.Timestamp)).UTC(),
+		SourceIP: intToIP(event.SourceIP).String(),
+		DestIP: intToIP(event.DestIP).String(),
 		SourcePort: event.SourcePort,
-		DestPort:   event.DestPort,
-		Protocol:   protocolToString(event.Protocol),
-		PktLen:     event.PktLen,
+		DestPort: event.DestPort,
+		Protocol: protocolToString(event.Protocol),
+		PktLen: event.PktLen,
 	}
-
-	if err := p.writer.Write(packet); err != nil {
-		log.Printf("Failed to write packet to Influx writer: %v", err)
-	}
+	if err := p.writer.Write(packet); err != nil { p.writeErrors.Add(1) }
 }
-
+func (p *Processor) Stats() Stats {
+	return Stats{Events:p.events.Load(), ParseErrors:p.parseErrors.Load(), WriteErrors:p.writeErrors.Load()}
+}
 func parseRawEvent(data []byte) (*rawPacket, error) {
-	if len(data) < 32 {
-		return nil, fmt.Errorf("insufficient data length: %d", len(data))
-	}
-
-	event := &rawPacket{
-		Timestamp:  binary.LittleEndian.Uint64(data[0:8]),
-		SourceIP:   binary.LittleEndian.Uint32(data[8:12]),
-		DestIP:     binary.LittleEndian.Uint32(data[12:16]),
+	if len(data) != packetEventSize { return nil, fmt.Errorf("invalid event size: got %d, want %d", len(data), packetEventSize) }
+	return &rawPacket{
+		Timestamp: binary.LittleEndian.Uint64(data[0:8]),
+		SourceIP: binary.LittleEndian.Uint32(data[8:12]),
+		DestIP: binary.LittleEndian.Uint32(data[12:16]),
 		SourcePort: binary.LittleEndian.Uint16(data[16:18]),
-		DestPort:   binary.LittleEndian.Uint16(data[18:20]),
-		Protocol:   data[20],
-		PktLen:     binary.LittleEndian.Uint16(data[21:23]),
-	}
-
-	return event, nil
+		DestPort: binary.LittleEndian.Uint16(data[18:20]),
+		Protocol: data[20],
+		// Byte 21 is explicit alignment padding in the C event structure.
+		PktLen: binary.LittleEndian.Uint16(data[22:24]),
+	}, nil
 }
-
 func intToIP(ip uint32) net.IP {
-	result := make(net.IP, 4)
+	result := make(net.IP, net.IPv4len)
 	binary.LittleEndian.PutUint32(result, ip)
 	return result
 }
-
 func protocolToString(protocol uint8) string {
 	switch protocol {
-	case 1:
-		return "ICMP"
-	case 6:
-		return "TCP"
-	case 17:
-		return "UDP"
-	default:
-		return fmt.Sprintf("UNKNOWN(%d)", protocol)
+	case 1: return "ICMP"
+	case 6: return "TCP"
+	case 17: return "UDP"
+	default: return fmt.Sprintf("UNKNOWN(%d)", protocol)
 	}
 }
