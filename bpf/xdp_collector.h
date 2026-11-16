@@ -1,8 +1,11 @@
 #ifndef __XDP_COLLECTOR_H
 #define __XDP_COLLECTOR_H
+
+#include <linux/types.h>
+
 /* Fixed 32-byte event shared with internal/processor. */
 struct packet_event {
-  __u64 timestamp_ns; /* Unix epoch nanoseconds */
+  __u64 timestamp_ns; /* Monotonic nanoseconds since boot */
   __u32 src_ip;       /* IPv4 network-order address */
   __u32 dst_ip;
   __u16 src_port;     /* host byte order */

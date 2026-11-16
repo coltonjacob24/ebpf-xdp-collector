@@ -24,8 +24,12 @@ type rawPacket struct {
 	PktLen     uint16
 }
 
+type packetWriter interface {
+	Write(event influx.PacketEvent) error
+}
+
 type Processor struct {
-	writer            *influx.Writer
+	writer            packetWriter
 	events            atomic.Uint64
 	parseErrors       atomic.Uint64
 	writeErrors       atomic.Uint64
@@ -38,11 +42,11 @@ type Stats struct {
 	WriteErrors uint64
 }
 
-func New(writer *influx.Writer) *Processor {
+func New(writer packetWriter) *Processor {
 	p := &Processor{writer: writer}
 
 	var ts unix.Timespec
-	if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts); err != nil {
+	if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts); err == nil {
 		monoNS := ts.Sec*int64(time.Second) + ts.Nsec
 		p.wallClockOffsetNS = time.Now().UnixNano() - monoNS
 		p.hasClockOffset = true
