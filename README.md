@@ -122,11 +122,11 @@ which llvm-config
 ### Installing Golang
 ```sh
 # Download the latest stable Go (adjust version if needed)
-curl -LO https://go.dev/dl/go1.23.4.linux-amd64.tar.gz
+curl -LO https://go.dev/dl/go1.27.4.linux-amd64.tar.gz
 
 # Remove any old Go and install the new one
 sudo rm -rf /usr/local/go
-sudo tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.27.4.linux-amd64.tar.gz
 
 # Add Go to your PATH
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
