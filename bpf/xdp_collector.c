@@ -42,8 +42,10 @@ int xdp_collector(struct xdp_md *ctx) {
         return XDP_PASS;
 
     __u16 src_port = 0, dst_port = 0;
+
+    __u16 frag = bpf_ntohs(ip->frag_off);
     /* Later IPv4 fragments do not contain transport headers. */
-    if ((ip->frag_off & bpf_htons(IP_OFFSET)) == 0) {
+    if ((frag & 0x3fff) == 0) {
         if (ip->protocol == IPPROTO_TCP) {
             struct tcphdr *tcp = ip_header_end;
             if ((void *)(tcp + 1) <= ip_end && tcp->doff >= 5) {
@@ -66,7 +68,7 @@ int xdp_collector(struct xdp_md *ctx) {
     if (!e)
         return XDP_PASS;
 
-    e->timestamp_ns = bpf_ktime_get_real_ns();
+    e->timestamp_ns = bpf_ktime_get_ns();
     e->src_ip = ip->saddr;
     e->dst_ip = ip->daddr;
     e->src_port = src_port;
