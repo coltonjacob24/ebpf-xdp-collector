@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/sys/unix"
 	"github.com/coltonjacob24/ebpf-xdp-collector/internal/influx"
+	"golang.org/x/sys/unix"
 )
 
 const packetEventSize = 32
@@ -25,12 +25,12 @@ type rawPacket struct {
 }
 
 type Processor struct {
-	writer      *influx.Writer
-	events      atomic.Uint64
-	parseErrors atomic.Uint64
-	writeErrors atomic.Uint64
+	writer            *influx.Writer
+	events            atomic.Uint64
+	parseErrors       atomic.Uint64
+	writeErrors       atomic.Uint64
 	wallClockOffsetNS int64
-	hasClockOffset bool
+	hasClockOffset    bool
 }
 type Stats struct {
 	Events      uint64
@@ -38,12 +38,12 @@ type Stats struct {
 	WriteErrors uint64
 }
 
-func New(writer *influx.Writer) *Processor { 
+func New(writer *influx.Writer) *Processor {
 	p := &Processor{writer: writer}
 
 	var ts unix.Timespec
 	if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts); err != nil {
-		monoNS := st.Sec*int64(time.Second) + ts.Nsec
+		monoNS := ts.Sec*int64(time.Second) + ts.Nsec
 		p.wallClockOffsetNS = time.Now().UnixNano() - monoNS
 		p.hasClockOffset = true
 	}
@@ -59,13 +59,15 @@ func (p *Processor) HandleEvent(raw []byte) {
 		p.parseErrors.Add(1)
 		return
 	}
+
+	packetTime := time.Now().UTC()
+	if p.hasClockOffset {
+		// Convert the monotonic timestamp to wall clock time.
+		packetTime = time.Unix(0, int64(event.Timestamp)+p.wallClockOffsetNS).UTC()
+	}
+
 	packet := influx.PacketEvent{
-		Timestamp:  func() time.Time() {
-			if p.hasClockOffset {
-				return time.Unix(0, int64(event.Timestamp)+p.wallClockOffsetNS).UTC()	
-			}
-			return time.Now().UTC()
-		}(),
+		Timestamp:  packetTime,
 		SourceIP:   intToIP(event.SourceIP).String(),
 		DestIP:     intToIP(event.DestIP).String(),
 		SourcePort: event.SourcePort,
