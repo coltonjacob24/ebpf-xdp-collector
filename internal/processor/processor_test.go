@@ -3,6 +3,7 @@ package processor
 import (
 	"encoding/binary"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -237,5 +238,100 @@ func TestParseRawEventRejectsWrongSize(t *testing.T) {
 		if _, err := parseRawEvent(make([]byte, n)); err == nil {
 			t.Fatalf("expected size error for %d", n)
 		}
+	}
+}
+
+func TestParseCGeneratedEvent(t *testing.T) {
+	// The Go test runs from internal/processor.
+	fixturePath := "../../bin/packet_event.bin"
+
+	raw, err := os.ReadFile(fixturePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			t.Skip("C event fixture not found; run make generate-event first")
+		}
+		t.Fatalf("failed to read C event fixture: %v", err)
+	}
+
+	if len(raw) != packetEventSize {
+		t.Fatalf("fixture size = %d, want %d", len(raw), packetEventSize)
+	}
+
+	// Verify raw C struct decoding.
+	event, err := parseRawEvent(raw)
+	if err != nil {
+		t.Fatalf("failed to parse C-generated event: %v", err)
+	}
+
+	checks := []struct {
+		name string
+		got  uint64
+		want uint64
+	}{
+		{"timestamp", event.Timestamp, 1234567890123},
+		{"source IP", uint64(event.SourceIP), uint64(0x0A01A8C0)},
+		{"destination IP", uint64(event.DestIP), uint64(0x1900000A)},
+		{"source port", uint64(event.SourcePort), 54321},
+		{"destination port", uint64(event.DestPort), 443},
+		{"protocol", uint64(event.Protocol), 6},
+		{"packet length", uint64(event.PktLen), 1500},
+	}
+
+	for _, check := range checks {
+		if check.got != check.want {
+			t.Errorf(
+				"%s: got %d (0x%x), want %d (0x%x)",
+				check.name,
+				check.got,
+				check.got,
+				check.want,
+				check.want,
+			)
+		}
+	}
+
+	// Verify the decoded event also maps correctly into Influx metadata.
+	writer := &mockWriter{}
+	p := &Processor{writer: writer}
+
+	p.HandleEvent(raw)
+
+	if len(writer.events) != 1 {
+		t.Fatalf("expected 1 written event, got %d", len(writer.events))
+	}
+
+	got := writer.events[0]
+
+	metadataChecks := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"source IP", got.SourceIP, "192.168.1.10"},
+		{"destination IP", got.DestIP, "10.0.0.25"},
+		{"protocol", got.Protocol, "TCP"},
+	}
+
+	for _, check := range metadataChecks {
+		if check.got != check.want {
+			t.Errorf("%s: got %q, want %q",
+				check.name, check.got, check.want)
+		}
+	}
+
+	if got.SourcePort != 54321 {
+		t.Errorf("source port = %d, want 54321", got.SourcePort)
+	}
+
+	if got.DestPort != 443 {
+		t.Errorf("destination port = %d, want 443", got.DestPort)
+	}
+
+	if got.PktLen != 1500 {
+		t.Errorf("packet length = %d, want 1500", got.PktLen)
+	}
+
+	if got.Timestamp.IsZero() {
+		t.Error("timestamp should not be zero")
 	}
 }
