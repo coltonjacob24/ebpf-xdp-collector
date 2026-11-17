@@ -1,13 +1,11 @@
-Y YAML
-
 interface: eth0
-
-influx:
-  url: http://localhost:8086
-  token: your_influx_token_here
-  org: "my-org"
-  bucket: "packet_telemetry"
-  batch_size: 500
-  flush_interval: 2s
-
 log_level: info
+influx:
+  url: http://localhost:8181
+  token: ""
+  org: ""
+  bucket: packet_metadata
+  batch_size: 5000
+  # Bounded in-memory queue; overflow is counted as metadata loss.
+  queue_size: 100000
+  flush_interval: 1s

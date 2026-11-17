@@ -39,6 +39,7 @@ func NewLoader(iface string) (*Loader, error) {
 	attached, err := link.AttachXDP(link.XDPOptions{
 		Program:   objs.XdpCollector,
 		Interface: networkInterface.Index,
+		Flags:     link.XDPGenericMode,
 	})
 	if err != nil {
 		_ = objs.Close()
