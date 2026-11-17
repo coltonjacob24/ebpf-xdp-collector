@@ -25,12 +25,59 @@ at that rate. Reaching the target requires per-RX-queue AF_XDP sockets (zero-cop
 where supported), CPU/NUMA pinning, per-queue workers and packet-generator
 benchmarks with explicit loss accounting.
 
-## Build
+## Build And Run
+
+### Ensure InfluxDB is up and running:
+```sh
+sudo systemctl status influxdb3-core
+sudo systemctl start influxdb3-core
+
+# Enable automatic startup (only needs to be done once):
+sudo systemctl enable influxdb3-core
+
+# Verify the database listens on port 8181
+sudo ss -lntp | grep 8181
+# Expected endpoint is http://localhost:8181
+
+# Optional: Load environment variables:
+~/.config/ebpf-xdp-collector/influx.env
+
+## ~/.config/ebpf-xdp-collector/influx.env contains
+export INFLUX_TOKEN='YOUR_ADMIN_TOKEN'
+export INFLUXDB3_AUTH_TOKEN="$INFLUX_TOKEN"
+export INFLUX_URL='http://localhost:8181'
+##
+source ~/.config/ebpf-xdp-collector/influx.env
+echo "$INFLUX_URL"
+```
+
+### Verify Database
+```sh
+# Collector writes packet metadata to packet_metadata DB
+# Check if it exists and can be accessed
+influxdb3 query \
+  --host http://localhost:8181 \
+  --database packet_metadata \
+  "SHOW TABLES"
+
+# Check current record count with:
+influxdb3 query \
+  --host http://localhost:8181 \
+  --database packet_metadata \
+  "SELECT COUNT(*) AS total FROM packet_event"
+```
 
 ```sh
 make clean
-make build
+make all
+
+# Optional step to verify executable:
+ls -lh bin/collector
+
+# Run
+sudo -E ./bin/collector
 ```
+If a fresh install of InfluxDB 3 is needed, see Installing Dependencies (Rocky).
 
 ## Testing
 
@@ -50,7 +97,6 @@ make test-c
 
 # Full test suite
 make test
-
 ```
 
 ### C/XDP parser test starter
@@ -127,6 +173,118 @@ clang --version
 llvm-config --version
 which clang
 which llvm-config
+```
+
+### Installing InfluxDB 3
+```sh
+sudo dnf update -y
+
+sudo dnf install -y \
+  git \
+  make \
+  clang \
+  llvm \
+  gcc \
+  gcc-c++ \
+  libbpf-devel \
+  bpftool \
+  iproute \
+  iputils \
+  python3 \
+  curl \
+  wget \
+  tar
+
+# influxdb3-core
+curl --silent --location -O \
+  https://repos.influxdata.com/influxdata-archive.key
+
+gpg --show-keys --with-fingerprint --with-colons \
+  ./influxdata-archive.key 2>&1 \
+  | grep -q '^fpr::*24C975CBA61A024EE1B631787C3D57159FC2F927:$'
+
+# If successful:
+sudo mkdir -p \
+  /usr/share/influxdata-archive-keyring/keyrings
+
+sudo cp influxdata-archive.key \
+  /usr/share/influxdata-archive-keyring/keyrings/influxdata-archive.asc
+
+sudo tee /etc/yum.repos.d/influxdata.repo > /dev/null <<'EOF'
+[influxdata]
+name = InfluxData Repository - Stable
+baseurl = https://repos.influxdata.com/stable/$basearch/main
+enabled = 1
+gpgcheck = 1
+gpgkey = file:///usr/share/influxdata-archive-keyring/keyrings/influxdata-archive.asc
+EOF
+
+# Install
+sudo dnf install -y influxdb3-core
+influxdb3 --version
+
+# Configure
+/etc/influxdb3/influxdb3-core.conf
+sudo nano /etc/influxdb3/influxdb3-core.conf
+
+# Add:
+node-id = "primary-node"
+object-store = "file"
+data-dir = "/var/lib/influxdb3/data"
+plugin-dir = "/var/lib/influxdb3/plugins"
+
+# Enable automatic start
+sudo systemctl enable influxdb3-core
+
+# Start service
+sudo systemctl start influxdb3-core
+sudo systemctl status influxdb3-core
+sudo ss -lntp | grep 8181
+
+# Create initial token:
+influxdb3 create token --admin
+
+# Securely store token
+mkdir -p ~/.config/ebpf-xdp-collector
+chmod 700 ~/.config/ebpf-xdp-collector
+nano ~/.config/ebpf-xdp-collector/influx.env
+
+## Add:
+export INFLUX_TOKEN='PASTE_YOUR_NEW_ADMIN_TOKEN_HERE'
+export INFLUXDB3_AUTH_TOKEN="$INFLUX_TOKEN"
+export INFLUX_URL='http://localhost:8181'
+##
+
+chmod 600 ~/.config/ebpf-xdp-collector/influx.env
+source ~/.config/ebpf-xdp-collector/influx.env
+
+# Verify without displaying token:
+echo "$INFLUX_URL"
+
+if [ -n "$INFLUX_TOKEN" ]; then
+    echo "InfluxDB token loaded"
+fi
+
+# Optional code to automatically load the file upon opening a terminal
+echo 'source ~/.config/ebpf-xdp-collector/influx.env' >> ~/.bashrc
+#
+
+source ~/.bashrc
+
+# Create packet_metadata
+influxdb3 create database \
+  --host http://localhost:8181 \
+  packet_metadata
+
+# Verify existence
+influxdb3 show databases \
+  --host http://localhost:8181
+
+# Verify access
+influxdb3 query \
+  --host http://localhost:8181 \
+  --database packet_metadata \
+  "SHOW TABLES"
 ```
 
 ### Installing Golang
