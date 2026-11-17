@@ -28,19 +28,19 @@ type PacketEvent struct {
 }
 
 type WriterStats struct {
-	Queued, QueueDropped, WriteDropped, WriteErrors uint64
+	Queued, QueueDropped, Written, WriteDropped, WriteErrors uint64
 }
 
 type Writer struct {
-	client                                          *influxdb3.Client
-	queue                                           chan *influxdb3.Point
-	option                                          influxdb3.WriteOption
-	batchSize                                       int
-	interval                                        time.Duration
-	mu                                              sync.Mutex
-	closed                                          bool
-	done                                            chan struct{}
-	queued, queueDropped, writeDropped, writeErrors atomic.Uint64
+	client                                                   *influxdb3.Client
+	queue                                                    chan *influxdb3.Point
+	option                                                   influxdb3.WriteOption
+	batchSize                                                int
+	interval                                                 time.Duration
+	mu                                                       sync.Mutex
+	closed                                                   bool
+	done                                                     chan struct{}
+	queued, queueDropped, written, writeDropped, writeErrors atomic.Uint64
 }
 
 func NewWriter(cfg config.InfluxConfig) (*Writer, error) {
@@ -136,14 +136,27 @@ func (w *Writer) run() {
 		if len(batch) == 0 {
 			return
 		}
+
+		pointCount := uint64(len(batch))
+
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		err := w.client.WritePoints(ctx, batch, w.option)
 		cancel()
+
 		if err != nil {
 			w.writeErrors.Add(1)
-			w.writeDropped.Add(uint64(len(batch)))
-			log.Printf("InfluxDB batch write failed: points=%d total_failed=%d error=%v", len(batch), w.writeDropped.Load(), err)
+			w.writeDropped.Add(pointCount)
+
+			log.Printf(
+				"InfluxDB batch write failed: points=%d total_failed=%d error=%v",
+				pointCount,
+				w.writeDropped.Load(),
+				err,
+			)
+		} else {
+			w.written.Add(pointCount)
 		}
+
 		batch = batch[:0]
 	}
 
@@ -163,10 +176,12 @@ func (w *Writer) run() {
 		}
 	}
 }
+
 func (w *Writer) Stats() WriterStats {
 	return WriterStats{
 		Queued:       w.queued.Load(),
 		QueueDropped: w.queueDropped.Load(),
+		Written:      w.written.Load(),
 		WriteDropped: w.writeDropped.Load(),
 		WriteErrors:  w.writeErrors.Load(),
 	}

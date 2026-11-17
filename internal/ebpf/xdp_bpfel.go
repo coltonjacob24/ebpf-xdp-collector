@@ -8,15 +8,25 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"structs"
 
 	"github.com/cilium/ebpf"
 )
+
+type xdpXdpStats struct {
+	_                    structs.HostLayout
+	PacketsSeen          uint64
+	PacketsParsed        uint64
+	RingbufReserveFailed uint64
+	EventsSubmitted      uint64
+}
 
 // Names of all BPF objects in the ELF.
 //
 // Used for safe lookups in a Collection or CollectionSpec.
 const (
 	xdpMapEvents        = "events"
+	xdpMapStats         = "stats"
 	xdpProgXdpCollector = "xdp_collector"
 )
 
@@ -70,6 +80,7 @@ type xdpProgramSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type xdpMapSpecs struct {
 	Events *ebpf.MapSpec `ebpf:"events"`
+	Stats  *ebpf.MapSpec `ebpf:"stats"`
 }
 
 // xdpVariableSpecs contains global variables before they are loaded into the kernel.
@@ -99,11 +110,13 @@ func (o *xdpObjects) Close() error {
 // It can be passed to loadXdpObjects or ebpf.CollectionSpec.LoadAndAssign.
 type xdpMaps struct {
 	Events *ebpf.Map `ebpf:"events"`
+	Stats  *ebpf.Map `ebpf:"stats"`
 }
 
 func (m *xdpMaps) Close() error {
 	return _XdpClose(
 		m.Events,
+		m.Stats,
 	)
 }
 

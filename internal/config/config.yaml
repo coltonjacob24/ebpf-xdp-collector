@@ -1,4 +1,4 @@
-interface: eth0
+interface: veth-xdp
 log_level: info
 influx:
   url: http://localhost:8181
