@@ -70,6 +70,16 @@ make build
 go test -race ./...
 ```
 
+### C to Go Compatibility Test
+```sh
+# Run Test
+make generate-event
+
+# Check Output
+wc -c bin/packet_event.bin
+# Expected Output: 32 bin/packet_event.bin
+```
+
 The host tests execute the same parse_ipv4_packet() function
 used by the XDP program.
 
