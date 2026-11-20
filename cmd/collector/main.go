@@ -97,10 +97,19 @@ collection:
 	writerStats := writer.Stats()
 
 	log.Printf(
-		"shutdown: xdp_seen=%d xdp_parsed=%d ringbuf_reserve_failed=%d "+
-			"events_submitted=%d events_received=%d parse_errors=%d "+
-			"processor_write_errors=%d queued=%d queue_dropped=%d "+
-			"influx_written=%d influx_write_dropped=%d influx_write_errors=%d",
+		"---SHUTDOWN---\n" +
+		"xdp_seen=%d\n" +
+		"xdp_parsed=%d\n" +
+		"ringbuf_reserve_failed=%d " +
+		"events_submitted=%d\n" +
+		"events_received=%d\n" +
+		"parse_errors=%d\n" +
+		"processor_write_errors=%d\n" +
+		"queued=%d\n" +
+		"queue_dropped=%d\n" +
+		"influx_written=%d\n" +
+		"influx_write_dropped=%d\n" +
+		"influx_write_errors=%d\n",
 		finalXDPStats.PacketsSeen,
 		finalXDPStats.PacketsParsed,
 		finalXDPStats.RingbufReserveFailed,
@@ -164,10 +173,19 @@ func reportStats(
 	writerStats := writer.Stats()
 
 	log.Printf(
-		"%s: xdp_seen=%d xdp_parsed=%d ringbuf_reserve_failed=%d "+
-			"events_submitted=%d events_received=%d parse_errors=%d "+
-			"processor_write_errors=%d queued=%d queue_dropped=%d "+
-			"influx_written=%d influx_write_dropped=%d influx_write_errors=%d",
+		"%s:\n" +
+		"xdp_seen=%d\n" +
+		"xdp_parsed=%d\n" +
+		"ringbuf_reserve_failed=%d\n" +
+		"events_submitted=%d\n" +
+		"events_received=%d\n" +
+		"parse_errors=%d\n" +
+		"processor_write_errors=%d\n" +
+		"queued=%d\n" +
+		"queue_dropped=%d\n" +
+		"influx_written=%d\n" +
+		"influx_write_dropped=%d\n"
+		"influx_write_errors=%d\n",
 		label,
 		xdpStats.PacketsSeen,
 		xdpStats.PacketsParsed,
