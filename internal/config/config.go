@@ -39,6 +39,10 @@ func Load(filePath string) (*Config, error) {
 		return nil, fmt.Errorf("interface must be configured")
 	}
 
+	if url := os.Getenv("INFLUX_URL"); url != "" {
+		cfg.Influx.URL = url
+	}
+
 	if cfg.Influx.URL == "" {
 		return nil, fmt.Errorf("influx.url must be configured")
 	}
@@ -77,10 +81,6 @@ func Load(filePath string) (*Config, error) {
 
 	if cfg.Influx.Token == "" {
 		return nil, fmt.Errorf("influx.token must be configured (set INFLUX_TOKEN)")
-	}
-
-	if url := os.Getenv("INFLUX_URL"); url != "" {
-		cfg.Influx.URL = url
 	}
 
 	return &cfg, nil
