@@ -9,7 +9,7 @@ IP protocol and IPv4 total length. Packet payloads are not retained. Non-initial
 IPv4 fragments have zero ports. The initial parser supports Ethernet + IPv4;
 IPv6 and VLAN-tagged traffic are not yet included.
 
-Copy `config/config.example.yaml` to `config/config.yaml`, set the interface and
+Copy `config/config.example.yaml` to `internal/config/config.yaml`, set the interface and
 InfluxDB 3 connection values, then build with the Makefile. The process needs the
 privileges and kernel support required to attach XDP and load BPF programs.
 
@@ -50,6 +50,7 @@ export INFLUX_URL='http://localhost:8181'
 source ~/.config/ebpf-xdp-collector/influx.env
 echo "$INFLUX_URL"
 ```
+If a fresh install of InfluxDB 3 is needed, see Installing Dependencies (Rocky).
 
 ### Verify Database
 ```sh
@@ -67,6 +68,7 @@ influxdb3 query \
   "SELECT COUNT(*) AS total FROM packet_event"
 ```
 
+### Run Collector
 ```sh
 make clean
 make all
@@ -77,7 +79,6 @@ ls -lh bin/collector
 # Run
 sudo -E ./bin/collector
 ```
-If a fresh install of InfluxDB 3 is needed, see Installing Dependencies (Rocky).
 
 ## Testing
 
